@@ -26,7 +26,7 @@ Apple-style voice dictation for Linux. Hold a key, speak, release — text appea
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/DictateFlow.git
+git clone https://github.com/alokflows/DictateFlow.git
 cd DictateFlow
 bash install.sh
 ```
