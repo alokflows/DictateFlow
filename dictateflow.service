@@ -1,0 +1,18 @@
+[Unit]
+Description=DictateFlow — Apple-style voice dictation
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=HOME_DIR/DictateFlow
+ExecStart=HOME_DIR/.local/bin/dictateflow
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=XAUTH_PATH
+StandardOutput=append:HOME_DIR/.dictateflow.log
+StandardError=append:HOME_DIR/.dictateflow.log
+
+[Install]
+WantedBy=default.target
