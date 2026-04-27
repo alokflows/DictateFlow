@@ -5,7 +5,7 @@ import sounddevice as sd
 from collections import deque
 
 SAMPLE_RATE = 16000
-N_BARS      = 13
+N_BARS      = 5
 FFT_SIZE    = 1024
 
 # Log-spaced frequency bands (80 Hz → 8 kHz), tuned for voice
