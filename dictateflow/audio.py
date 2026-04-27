@@ -1,24 +1,24 @@
-"""Audio recording and real-time FFT bar computation."""
+"""Audio recording with spring-physics bar animation."""
 
 import numpy as np
 import sounddevice as sd
-from collections import deque
 
 SAMPLE_RATE = 16000
 N_BARS      = 5
 FFT_SIZE    = 1024
 
-# Log-spaced frequency bands (80 Hz → 8 kHz), tuned for voice
-_BANDS = np.logspace(np.log10(80), np.log10(8000), N_BARS + 1)
+_BANDS = np.logspace(np.log10(120), np.log10(7000), N_BARS + 1)
 
 class AudioRecorder:
-    def __init__(self, on_bars, on_chunk):
-        self._on_bars  = on_bars    # callback(list[float])  — for UI
-        self._on_chunk = on_chunk   # callback(np.ndarray)   — raw float32
+    def __init__(self, on_bars, on_chunk=None):
+        self._on_bars  = on_bars
         self._recording = False
         self._chunks    = []
-        self._ring      = deque(maxlen=FFT_SIZE)
-        self._bars      = [0.0] * N_BARS
+        self._ring      = np.zeros(FFT_SIZE, dtype=np.float32)
+        self._ring_pos  = 0
+
+        # Spring physics per bar: [position, velocity]
+        self._phys = [[0.0, 0.0] for _ in range(N_BARS)]
 
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=1,
@@ -29,37 +29,43 @@ class AudioRecorder:
 
     def _cb(self, indata, frames, time_info, status):
         mono = indata[:, 0]
-        self._ring.extend(mono)
+        # Fill ring buffer
+        n = len(mono)
+        end = (self._ring_pos + n) % FFT_SIZE
+        if end > self._ring_pos:
+            self._ring[self._ring_pos:end] = mono
+        else:
+            self._ring[self._ring_pos:] = mono[:FFT_SIZE - self._ring_pos]
+            self._ring[:end] = mono[FFT_SIZE - self._ring_pos:]
+        self._ring_pos = end
+
         if self._recording:
             self._chunks.append(indata.copy())
 
-        # FFT bar computation every callback
-        if len(self._ring) == FFT_SIZE:
-            self._compute_bars(np.array(self._ring))
+        self._update_bars()
 
-    def _compute_bars(self, data):
-        window  = data * np.hanning(len(data))
+    def _update_bars(self):
+        window  = self._ring * np.hanning(FFT_SIZE)
         fft_mag = np.abs(np.fft.rfft(window, n=FFT_SIZE))
         freqs   = np.fft.rfftfreq(FFT_SIZE, 1.0 / SAMPLE_RATE)
 
-        new_bars = []
+        targets = []
         for i in range(N_BARS):
             mask = (freqs >= _BANDS[i]) & (freqs < _BANDS[i + 1])
-            val  = float(np.mean(fft_mag[mask])) if mask.any() else 0.0
-            new_bars.append(val)
+            targets.append(float(np.mean(fft_mag[mask])) if mask.any() else 0.0)
 
-        # Normalise to 0–1
-        peak = max(new_bars) or 1.0
-        new_bars = [v / peak for v in new_bars]
+        peak = max(targets) or 1.0
+        targets = [min(v / peak, 1.0) for v in targets]
 
-        # Smooth: fast attack, slow decay
-        for i in range(N_BARS):
-            if new_bars[i] > self._bars[i]:
-                self._bars[i] = self._bars[i] * 0.3 + new_bars[i] * 0.7
-            else:
-                self._bars[i] = self._bars[i] * 0.75 + new_bars[i] * 0.25
+        # Spring physics: fast attack, slow natural decay
+        for i, target in enumerate(targets):
+            pos, vel = self._phys[i]
+            force     = (target - pos) * (0.55 if target > pos else 0.18)
+            vel       = vel * 0.72 + force
+            pos       = max(0.0, min(1.0, pos + vel))
+            self._phys[i] = [pos, vel]
 
-        self._on_bars(list(self._bars))
+        self._on_bars([p for p, _ in self._phys])
 
     def start_recording(self):
         self._chunks = []
